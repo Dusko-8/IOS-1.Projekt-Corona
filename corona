@@ -1,0 +1,1506 @@
+#!/bin/sh
+export POSIXLY_CORRECT=yes
+export LC_NUMERic=en_US.UTF-8
+
+PROGRAM_END_STATE=0
+
+COMAND=""
+
+a_DATETIME=""
+b_DATETIME=""
+
+a_isset=0
+b_isset=0
+
+g_isset=0
+GENDER=""
+
+s_isset=0
+WIDTH=""
+
+LOG_FILES=""
+GZ_LOG_FILES=""
+
+Filter_isset=0
+Comand_count=0
+
+First_run=0
+Final_File=""
+finde_max() {
+    a=$1
+    b=$2
+    c=$3
+
+    if [ "$a" -ge "$b" ] && [ "$a" -ge "$c" ]; then
+        max=$a
+    fi
+    if [ "$b" -ge "$a" ] && [ "$b" -ge "$c" ]; then
+        max=$b
+    fi
+    if [ "$c" -ge "$a" ] && [ "$c" -ge "$b" ]; then
+        max=$c
+    fi
+}
+echoerr() { printf "%s\n" "$*" >&2; }
+give_help() {
+    echo "----------------------------Usage----------------------------"
+    echo ""
+    echo "Search for help:  corona [-h]"
+    echo "Usage:            corona [FILTER...] [COMAND] [LOG2[LOG1]]"
+    echo ""
+    echo "-------------------------Description-------------------------"
+    echo ""
+    echo "COVID-19 coronavirus infectious disease record analyzer"
+    echo "The script will filter records and provide basic statistics as specified by the user."
+    echo ""
+    echo "---------------------------Comands---------------------------"
+    echo ""
+    echo "infected:     counts the number of infected"
+    echo "merge:        merges several log files into one, preserving the original order (the header will be on output only once)."
+    echo "gender:       lists the number of infected for each sex."
+    echo "age:          lists statistics on the number of infected people by age (more detailed description is below)."
+    echo "daily:        lists statistics on infected people for each day."
+    echo "monthly:      lists statistics on infected people for each month."
+    echo "yearly:       lists statistics on infected people for each year."
+    echo "countries:    lists statistics of infected persons for individual countries of the disease (excluding the Czech Republic)."
+    echo "districts:    lists statistics on infected persons for individual districts."
+    echo "regions:      lists statistics of infected persons for individual regions."
+    echo ""
+    echo "---------------------------FILTERS---------------------------"
+    echo ""
+    echo "-a DATETIME:  after: only records AFTER this date are considered (including this date). DATETIME is in the format YYYY-MM-DD."
+    echo "-b DATETIME:  before: only records BEFORE this date (including this date) are considered."
+    echo "-g GENDER:    only records of infected persons of a given sex are considered. GENDER can be M (men) or Z (women)."
+    echo "-s HISTOGRAM: -s [WIDTH] for gender, age, daily, monthly, yearly, countries, districts, and regions commands lists data not numerically but graphically in the form of histograms. The optional parameter WIDTH sets the width of the histograms, ie the length of the longest line, to WIDTH. Thus, WIDTH must be a positive integer. If the WIDTH parameter is not specified, the line widths follow the requirements below."
+    echo ""
+    echo "-------------------------------------------------------------"
+
+    
+}
+process_stdinput() {
+    GZ_LOG_FILES="$1"
+    LOG_FILES="$2"
+
+    if [ -z "$LOG_FILES" ] && [ -z "$GZ_LOG_FILES" ]; then
+        Final_File=$(cat | tail -n +2)
+    fi
+}
+process_comand() {
+    CFS="$1"
+    COMAND="$2"
+    if [ "$COMAND" = "" ] && [ $Filter_isset -eq 1 ]; then
+        echo "id,datum,vek,pohlavie,kraj_nuts_kod,okres_lau_kod,nakaza_v_zahranici,nakaza_zeme_csu_kod,reportovano_khs"
+        if [ "$CFS" != "" ]; then
+            echo "$CFS"
+        fi
+    fi
+    if [ "$COMAND" = "infected" ]; then
+        Result=$(echo "$CFS" | wc -l)
+        echo "$Result"
+    fi
+    if [ "$COMAND" = "merge" ]; then
+        echo "id,datum,vek,pohlavie,kraj_nuts_kod,okres_lau_kod,nakaza_v_zahranici,nakaza_zeme_csu_kod,reportovano_khs"
+        if [ -n "$CFS" ]; then
+        echo "$CFS"
+        fi
+    fi
+    #gender comand without graph
+    if [ "$COMAND" = "gender" ] && [ "$s_isset" = "0" ]; then
+        #uchova v premenej Mc pocet muzov
+        Mc=$(echo "$CFS" | awk -v Mc=0 -F',' '{
+            if($4 == "M"){
+                Mc = Mc+1
+            }
+           }END{
+            print Mc
+        }')
+        #uchova v premenej Zc pocet zien
+        Zc=$(echo "$CFS" | awk -v Zc=0 -F',' '{
+            if($4 == "Z"){
+                Zc = Zc+1
+            }
+           }END{
+            print Zc
+        }')
+        None=$(echo "$CFS" |
+            awk \
+                -v None=0 -F',' \
+                '{
+            if($4 == ""){
+                None = None+1
+            }
+           }END{
+            print None
+        }')
+        printf "M: %s\n" "$Mc"
+        printf "Z: %s\n" "$Zc"
+        if [ "$None" != 0 ]; then
+            printf "None: %s\n" "$None"
+        fi
+    fi
+    #gender comand with graph
+    if [ "$COMAND" = "gender" ] && [ "$s_isset" = "1" ]; then
+
+        #uchova v premenej Mc pocet muzov
+        Mc=$(echo "$CFS" | awk -v Mc=0 -F',' '{
+            if($4 == "M"){
+                Mc = Mc+1
+            }
+           }END{
+            print Mc
+        }')
+        #uchova v premenej Zc pocet zien
+        Zc=$(echo "$CFS" | awk -v Zc=0 -F',' '{
+            if($4 == "Z"){
+                Zc = Zc+1
+            }
+           }END{
+            print Zc
+        }')
+        None=$(echo "$CFS" |
+            awk \
+                -v None=0 -F',' \
+                '{
+            if($4 == ""){
+                None = None+1
+            }
+           }END{
+            print None
+        }')
+        if [ "$WIDTH" = "Basic" ]; then
+            WIDTH=100000
+            Mc=$((Mc / WIDTH))
+            printf "M: "
+            i=0
+            while [ "$i" != "$Mc" ]; do
+                printf "#"
+                i=$((i + 1))
+            done
+            printf "\n"
+            Zc=$((Zc / WIDTH))
+            printf "Z: "
+            i=0
+            while [ "$i" != "$Zc" ]; do
+                printf "#"
+                i=$((i + 1))
+            done
+            printf "\n"
+            if [ "$None" != 0 ]; then
+                None=$((None / WIDTH))
+                printf "None: "
+                i=0
+                while [ "$i" != "$None" ]; do
+                    printf "#"
+                    i=$((i + 1))
+                done
+                printf "\n"
+            fi
+            WIDTH="Basic"
+        fi
+
+        if [ "$WIDTH" != "Basic" ]; then
+
+            finde_max $Mc $Zc $None
+            Mc=$((WIDTH / (max / Mc)))
+            printf "M: "
+            i=0
+            while [ "$i" != "$Mc" ]; do
+                printf "#"
+                i=$((i + 1))
+            done
+            printf "\n"
+            Zc=$((WIDTH / (max / Zc)))
+            printf "Z: "
+            i=0
+            while [ "$i" != "$Zc" ]; do
+                printf "#"
+                i=$((i + 1))
+            done
+            printf "\n"
+            if [ "$None" != 0 ]; then
+                None=$((WIDTH / (max / None)))
+                printf "None: "
+                i=0
+                while [ "$i" != "$None" ]; do
+                    printf "#"
+                    i=$((i + 1))
+                done
+                printf "\n"
+
+            fi
+        fi
+    fi
+    #age comand without graph
+    if [ "$COMAND" = "age" ] && [ "$s_isset" = "0" ]; then
+        Result=$(echo "$CFS" | awk \
+            -v age0_5=0 -v age6_15=0 -v age16_25=0 -v age26_35=0 -v age36_45=0 -v age46_55=0 -v age56_65=0 -v age66_75=0 -v age76_85=0 -v age86_95=0 -v age96_105=0 -v age106=0 -v None=0 -F',' \
+            '{  
+            if($3 == ""){
+                None = None + 1
+            }
+            if(0 <= $3 && $3 <=5){
+                age0_5 = age0_5 + 1
+            }
+            
+            if(6 <= $3 && $3 <=15){
+                age6_15 = age6_15 + 1
+            }
+
+            if(16 <=$3 && $3<=25){
+                age16_25 = age16_25 + 1
+            }
+
+            if(26 <= $3 && $3 <=35){
+                age26_35 = age26_35 + 1
+            }
+
+            if(36 <= $3 && $3 <=45){
+                age36_45 = age36_45 + 1
+            }
+
+            if(46 <= $3 && $3<=55){
+                age46_55 = age46_55 + 1
+            }
+
+            if(56 <= $3 && $3 <=65){
+                age56_65 = age56_65 + 1
+            }
+            
+            if(66 <= $3 && $3 <=75){
+                age66_75 = age66_75 + 1
+            }
+            
+            if(76 <= $3 && $3 <=85){
+                age76_85 = age76_85 + 1
+            }
+            
+            if(86 <= $3 && $3 <=95){
+                age86_95 = age86_95 + 1
+            }
+             
+            if(96 <= $3 && $3 <=105){
+                age96_105 = age96_105 + 1
+            }
+
+            if(106 <= $3){
+                age106 = age106 + 1
+            }
+
+           }END{
+            printf "0-5   : %s\n" ,age0_5
+            printf "6-15  : %s\n" ,age6_15
+            printf "16-25 : %s\n" ,age16_25
+            printf "26-35 : %s\n" ,age26_35
+            printf "36-45 : %s\n" ,age36_45
+            printf "46-55 : %s\n" ,age46_55
+            printf "56-65 : %s\n" ,age56_65
+            printf "66-75 : %s\n" ,age66_75
+            printf "76-85 : %s\n" ,age76_85
+            printf "86-95 : %s\n" ,age86_95
+            printf "96-105: %s\n" ,age96_105
+            printf "105   : %s\n" ,age106
+            if(None > 0){
+            printf "None  : %s\n" ,None}
+        }')
+        echo "$Result"
+    fi
+    #age comand with graph
+    if [ "$COMAND" = "age" ] && [ "$s_isset" = "1" ]; then
+        Result=$(echo "$CFS" | awk \
+            -v age0_5=0 -v age6_15=0 -v age16_25=0 -v age26_35=0 -v age36_45=0 -v age46_55=0 -v age56_65=0 -v age66_75=0 -v age76_85=0 -v age86_95=0 -v age96_105=0 -v age106=0 -v None=0 -F',' \
+            '{  
+            if($3 == ""){
+                None = None + 1
+            }
+            if(0 <= $3 && $3 <=5){
+                age0_5 = age0_5 + 1
+            }
+            
+            if(6 <= $3 && $3 <=15){
+                age6_15 = age6_15 + 1
+            }
+
+            if(16 <=$3 && $3<=25){
+                age16_25 = age16_25 + 1
+            }
+
+            if(26 <= $3 && $3 <=35){
+                age26_35 = age26_35 + 1
+            }
+
+            if(36 <= $3 && $3 <=45){
+                age36_45 = age36_45 + 1
+            }
+
+            if(46 <= $3 && $3<=55){
+                age46_55 = age46_55 + 1
+            }
+
+            if(56 <= $3 && $3 <=65){
+                age56_65 = age56_65 + 1
+            }
+            
+            if(66 <= $3 && $3 <=75){
+                age66_75 = age66_75 + 1
+            }
+            
+            if(76 <= $3 && $3 <=85){
+                age76_85 = age76_85 + 1
+            }
+            
+            if(86 <= $3 && $3 <=95){
+                age86_95 = age86_95 + 1
+            }
+             
+            if(96 <= $3 && $3 <=105){
+                age96_105 = age96_105 + 1
+            }
+
+            if(106 <= $3){
+                age106 = age106 + 1
+            }
+
+           }END{
+            printf "0-5   : %s\n" ,age0_5
+            printf "6-15  : %s\n" ,age6_15
+            printf "16-25 : %s\n" ,age16_25
+            printf "26-35 : %s\n" ,age26_35
+            printf "36-45 : %s\n" ,age36_45
+            printf "46-55 : %s\n" ,age46_55
+            printf "56-65 : %s\n" ,age56_65
+            printf "66-75 : %s\n" ,age66_75
+            printf "76-85 : %s\n" ,age76_85
+            printf "86-95 : %s\n" ,age86_95
+            printf "96-105: %s\n" ,age96_105
+            printf "105   : %s\n" ,age106
+            if(None > 0){
+            printf "None  : %s\n" ,None}
+        }')
+        if [ "$WIDTH" != "Basic" ]; then
+            max=$(echo "$Result" | awk -v max=0 -F ": " \
+                '{
+                if(max<$2){
+                    max=$2
+                }
+                
+            }
+            END{ 
+                printf"%s",max
+            }')
+            Result=$(echo "$Result" | awk -v i=0 -v max="$max" -v WIDTH="$WIDTH" -F ": " \
+                '{
+                if($2 == 0 || max == 0){
+                    c[i]=0
+                    i++
+                }else{
+                    c[i]=int(WIDTH/(max/$2)) 
+                    i++
+                }  
+            }
+            END{ 
+                printf "0-5   : "
+                for(j=0; j < c[0] ;j++){
+                    printf "#"
+                }
+                printf "\n" 
+                
+                printf "6-15  : "
+                for(j=0; j < c[1] ;j++){
+                    printf "#"
+                }
+                printf "\n" 
+
+                printf "16-25 : "
+                for(j=0; j < c[2] ;j++){
+                    printf "#"
+                }
+                printf "\n" 
+                
+                printf "26-35 : "
+                 for(j=0; j < c[3] ;j++){
+                    printf "#"
+                }
+                printf "\n" 
+
+                printf "36-45 : "
+                for(j=0; j < c[4] ;j++){
+                    printf "#"
+                }
+                printf "\n" 
+
+                printf "46-55 : "
+                for(j=0; j < c[5] ;j++){
+                    printf "#"
+                }
+                printf "\n"
+
+                printf "56-65 : "
+                for(j=0; j < c[6] ;j++){
+                    printf "#"
+                }
+                printf "\n"
+
+                printf "66-75 : "
+                for(j=0; j < c[7] ;j++){
+                    printf "#"
+                }
+                printf "\n"
+
+                printf "76-85 : "
+                for(j=0; j < c[8] ;j++){
+                    printf "#"
+                }
+                printf "\n"
+
+                printf "86-95 : "
+                for(j=0; j < c[9] ;j++){
+                    printf "#"
+                }
+                printf "\n"
+
+                printf "96-105: "
+                for(j=0; j < c[10] ;j++){
+                    printf "#"
+                }
+                printf "\n"
+
+                printf "105   : "
+                for(j=0; j < c[11] ;j++){
+                    printf "#"
+                }
+                printf "\n"
+
+                if(c[12]!=""){
+                    printf "None  : "
+                    for(j=0; j < c[12] ;j++){
+                    printf "#"
+                }
+                }
+            }')
+
+            echo "$Result"
+        fi
+        if [ "$WIDTH" = "Basic" ]; then
+            WIDTH=10000
+
+            Result=$(echo "$Result" | awk -v i=0 -v WIDTH="$WIDTH" -F ": " \
+                '{
+                if($2 == 0){
+                    c[i]=0
+                    i++
+                }else{
+                    c[i]=int($2/WIDTH) 
+                    i++
+                }  
+            }
+            END{ 
+                printf "0-5   : "
+                for(j=0; j < c[0] ;j++){
+                    printf "#"
+                }
+                printf "\n" 
+                
+                printf "6-15  : "
+                for(j=0; j < c[1] ;j++){
+                    printf "#"
+                }
+                printf "\n" 
+
+                printf "16-25 : "
+                for(j=0; j < c[2] ;j++){
+                    printf "#"
+                }
+                printf "\n" 
+                
+                printf "26-35 : "
+                 for(j=0; j < c[3] ;j++){
+                    printf "#"
+                }
+                printf "\n" 
+
+                printf "36-45 : "
+                for(j=0; j < c[4] ;j++){
+                    printf "#"
+                }
+                printf "\n" 
+
+                printf "46-55 : "
+                for(j=0; j < c[5] ;j++){
+                    printf "#"
+                }
+                printf "\n"
+
+                printf "56-65 : "
+                for(j=0; j < c[6] ;j++){
+                    printf "#"
+                }
+                printf "\n"
+
+                printf "66-75 : "
+                for(j=0; j < c[7] ;j++){
+                    printf "#"
+                }
+                printf "\n"
+
+                printf "76-85 : "
+                for(j=0; j < c[8] ;j++){
+                    printf "#"
+                }
+                printf "\n"
+
+                printf "86-95 : "
+                for(j=0; j < c[9] ;j++){
+                    printf "#"
+                }
+                printf "\n"
+
+                printf "96-105: "
+                for(j=0; j < c[10] ;j++){
+                    printf "#"
+                }
+                printf "\n"
+
+                printf "105   : "
+                for(j=0; j < c[11] ;j++){
+                    printf "#"
+                }
+                printf "\n"
+
+                if(c[12]!=""){
+                    printf "None  : "
+                    for(j=0; j < c[12] ;j++){
+                    printf "#"
+                }
+                }
+            }')
+
+            echo "$Result"
+        fi
+
+    fi
+    #daily comand without graph
+    if [ "$COMAND" = "daily" ] && [ "$s_isset" = "0" ]; then
+        Result=$(echo "$CFS" | awk \
+            -v None=0 -F',' \
+            '{  
+            if($2 != ""){
+                days[$2]++
+            }else{
+                None++
+            }
+        }END{
+            for (i in days) {
+                printf "%s: %s\n" ,i ,days[i]
+            }
+            if(None > 0){
+            printf "None: %s\n" ,None} 
+        }')
+        Result=$(echo "$Result" | sort)
+        echo "$Result"
+
+    fi
+    #daily comand with graph
+    if [ "$COMAND" = "daily" ] && [ "$s_isset" = "1" ]; then
+        if [ "$WIDTH" != "Basic" ]; then
+            Result=$(echo "$CFS" | awk \
+                -v None=0 -v WIDTH="$WIDTH" -v max=0 -F',' \
+                '{  
+            if($2 != ""){
+                days[$2]++
+            }else{
+                None++
+            }
+            }END{
+            for (i in days) {
+                if(max<days[i]){
+                    max=days[i]
+                }
+            }
+            for (i in days) {
+                count = int(WIDTH/(max/days[i]))
+                printf "%s: " ,i
+                for(j=0;j<count;j++){
+                    printf "#"
+                }
+                printf "\n"
+            }
+                if(None > 0){
+                    count = int(WIDTH/(max/days[i]))
+                    printf "None: " 
+                    for(j=0;j<count;j++){
+                        printf "#"
+                    }
+                    printf "\n"
+                }
+            }')
+        fi
+        #width isn t set
+        if [ "$WIDTH" = "Basic" ]; then
+            WIDTH=500
+            Result=$(echo "$CFS" | awk \
+                -v None=0 -v WIDTH="$WIDTH" -F',' \
+                '{  
+            if($2 != ""){
+                days[$2]++
+            }else{
+                None++
+            }
+            }END{
+            for (i in days) {
+                count = int(days[i]/WIDTH)
+                printf "%s: " ,i
+                for(j=0;j<count;j++){
+                    printf "#"
+                }
+                printf "\n"
+            }
+                if(None > 0){
+                    count = int(None/WIDTH)
+                    printf "None: " 
+                    for(j=0;j<count;j++){
+                        printf "#"
+                    }
+                    printf "\n"
+                }
+            }')
+        fi
+
+        Result=$(echo "$Result" | sort)
+        echo "$Result"
+
+    fi
+    #monthly comand without graph
+    if [ "$COMAND" = "monthly" ] && [ "$s_isset" = "0" ]; then
+
+        Result=$(echo "$CFS" | cut -d "," -f 2 | awk \
+            -v None=0 -v Date="" -F'-' \
+            '{  
+            Date=""$1"-"$2""
+             if($1 != "" && $2 != "" && $3 != ""){
+                month[Date]++
+            }else{
+                None++
+            }
+        }END{
+            for (i in month) {
+                printf "%s: %s\n" ,i ,month[i]
+            }
+            if(None > 0){
+            printf "None  : %s\n" ,None} 
+        }')
+        Result=$(echo "$Result" | sort)
+        echo "$Result"
+    fi
+    #monthly comand with graph
+    if [ "$COMAND" = "monthly" ] && [ "$s_isset" = "1" ]; then
+        
+        if [ "$WIDTH" != "Basic" ]; then
+            Result=$(echo "$CFS" | cut -d "," -f 2 | awk \
+                -v None=0 -v Date="" -v max=0 -v WIDTH="$WIDTH"  -F'-' \
+                '{  
+                Date=""$1"-"$2""
+                if($1 != "" && $2 != "" && $3 != ""){
+                    month[Date]++
+                }else{
+                    None++
+                }
+                }END{
+                    for (i in month) {
+                        if(max<month[i]){
+                            max=month[i]
+                        }
+                    }
+                for (i in month) {
+                    count = int(WIDTH/(max/month[i]))
+                    printf "%s: " ,i
+                    for(j=0;j<count;j++){
+                        printf "#"
+                    }
+                    printf "\n"
+                }
+                    if(None > 0){
+                        count = int(WIDTH/(max/month[i]))
+                        printf "None: " 
+                        for(j=0;j<count;j++){
+                            printf "#"
+                        }
+                        printf "\n"
+                    }
+                }')
+        fi
+        #width isn t set
+        if [ "$WIDTH" = "Basic" ]; then
+            WIDTH=10000
+            Result=$(echo "$CFS" | cut -d "," -f 2 | awk \
+                -v None=0 -v Date="" -v WIDTH="$WIDTH" -F'-' \
+                '{  
+            Date=""$1"-"$2""
+             if($1 != "" && $2 != "" && $3 != ""){
+                month[Date]++
+            }else{
+                None++
+            }
+            }END{
+             for (i in month) {
+                    count = int(month[i]/WIDTH)
+                    printf "%s: " ,i
+                    for(j=0;j<count;j++){
+                    printf "#"
+                }
+                    printf "\n"
+                }
+                    if(None > 0){
+                        count = int(month[i]/WIDTH)
+                        printf "None: " 
+                        for(j=0;j<count;j++){
+                            printf "#"
+                        }
+                        printf "\n"
+                }
+            }')
+        fi
+
+        Result=$(echo "$Result" | sort)
+        echo "$Result"
+    fi
+    #yearly comand without graph
+    if [ "$COMAND" = "yearly" ] && [ "$s_isset" = "0" ]; then
+
+        Result=$(echo "$CFS" | cut -d "," -f 2 | awk \
+            -v None=0 -v Date="" -F'-' \
+            '{  
+            Date=""$1""
+             if($1 != "" && $2 != "" && $3 != ""){
+                year[Date]++
+            }else{
+                None++
+            }
+        }END{
+            for (i in year) {
+                printf "%s: %s\n" ,i ,year[i]
+            }
+            
+            if(None > 0){
+            printf "None: %s\n" ,None}
+            
+        }')
+        Result=$(echo "$Result" | sort)
+        echo "$Result"
+    fi
+    #yearly comand with graph
+    if [ "$COMAND" = "yearly" ] && [ "$s_isset" = "1" ]; then
+         if [ "$WIDTH" != "Basic" ]; then
+         Result=$(echo "$CFS" | cut -d "," -f 2 | awk \
+            -v None=0 -v Date="" -v WIDTH="$WIDTH" -F'-' \
+            '{  
+            Date=""$1""
+             if($1 != "" && $2 != "" && $3 != ""){
+                year[Date]++
+            }else{
+                None++
+            }
+            }END{
+            for (i in year) {
+                        if(max<year[i]){
+                            max=year[i]
+                        }
+                    }
+                for (i in year) {
+                    count = int(WIDTH/(max/year[i]))
+                    printf "%s: " ,i
+                    for(j=0;j<count;j++){
+                        printf "#"
+                    }
+                    printf "\n"
+                }
+                    if(None > 0){
+                        count = int(WIDTH/(max/year[i]))
+                        printf "None: " 
+                        for(j=0;j<count;j++){
+                            printf "#"
+                        }
+                        printf "\n"
+                    }
+            
+            }')
+        fi
+        if [ "$WIDTH" = "Basic" ]; then
+        WIDTH=100000
+        Result=$(echo "$CFS" | cut -d "," -f 2 | awk \
+            -v None=0 -v Date="" -v WIDTH="$WIDTH" -F'-' \
+            '{  
+            Date=""$1""
+             if($1 != "" && $2 != "" && $3 != ""){
+                year[Date]++
+            }else{
+                None++
+            }
+            }END{
+                for (i in year) {
+                    count = int(year[i]/WIDTH)
+                    printf "%s: " ,i
+                    for(j=0;j<count;j++){
+                        printf "#"
+                    }
+                    printf "\n"
+                }
+                    if(None > 0){
+                        count = int(year[i]/WIDTH)
+                        printf "None: " 
+                        for(j=0;j<count;j++){
+                            printf "#"
+                        }
+                        printf "\n"
+                    }
+            
+            }')
+        fi
+        
+        Result=$(echo "$Result" | sort)
+        echo "$Result"
+    fi
+    #countries comand without graph
+    if [ "$COMAND" = "countries" ] && [ "$s_isset" = "0" ]; then
+
+        Result=$(echo "$CFS" | awk \
+             -F','  \
+            '{  
+            if($8 != "" && $8 != "CZ"){
+                c_code[$8]++
+            }
+        }END{
+            for (i in c_code) {
+                printf "%s: %s\n" ,i ,c_code[i]
+            }
+
+        }')
+        Result=$(echo "$Result" | sort -n)
+        echo "$Result"
+
+
+    fi
+    #countries comand with graph
+    if [ "$COMAND" = "countries" ] && [ "$s_isset" = "1" ]; then        
+        if [ "$WIDTH" != "Basic" ]; then
+            Result=$(echo "$CFS" | awk \
+            -v max=0 -v WIDTH="$WIDTH" -F','\
+            '{  
+                if($8 != "" && $8 != "CZ"){
+                    c_code[$8]++
+                }
+            }END{
+                for (i in c_code) {
+                        if(max<c_code[i]){
+                        max=c_code[i]
+                    }
+                }
+                for (i in c_code) {
+                    count = int(WIDTH/(max/c_code[i]))
+                    printf "%s: " ,i
+                    for(j=0;j<count;j++){
+                        printf "#"
+                    }
+                    printf "\n"
+                }
+            }')
+        fi
+        if [ "$WIDTH" = "Basic" ]; then
+        WIDTH=100
+        Result=$(echo "$CFS" | awk \
+            -v WIDTH="$WIDTH" -F','\
+            '{  
+                if($8 != "" && $8 != "CZ"){
+                    c_code[$8]++
+                }
+            }END{
+                for (i in c_code) {
+                    count = int(c_code[i]/WIDTH)
+                    printf "%s: " ,i
+                    for(j=0;j<count;j++){
+                        printf "#"
+                    }
+                    printf "\n"
+                }
+            }')
+        fi
+
+        Result=$(echo "$Result" | sort )
+        echo "$Result"
+
+    fi
+    #districts comand without graph
+    if [ "$COMAND" = "districts" ] && [ "$s_isset" = "0" ]; then
+
+        Result=$(echo "$CFS" | awk \
+           -v None=0 -F',' \
+            '{  
+             if($6 != ""){
+                c_code[$6]++
+            }if($6 == ""){
+                None++
+            }
+        }END{
+            for (i in c_code) {
+                printf "%s: %s\n" ,i ,c_code[i]
+            }
+            if(None > 0){
+                printf "None: %s\n" ,None
+            }
+        }')
+        Result=$(echo "$Result" | sort)
+        echo "$Result"
+
+    fi
+    #districts comand with graph
+    if [ "$COMAND" = "districts" ] && [ "$s_isset" = "1" ]; then
+        if [ "$WIDTH" != "Basic" ]; then
+        Result=$(echo "$CFS" | awk \
+          -v max=0 -v WIDTH="$WIDTH" -v None=0 -F',' \
+            '{  
+             if($6 != ""){
+                c_code[$6]++
+            }if($6 == ""){
+                None++
+            }
+        }END{
+            for (i in c_code) {
+                        if(max<c_code[i]){
+                        max=c_code[i]
+                    }
+                }
+            for (i in c_code) {
+                count = int(WIDTH/(max/c_code[i]))
+                printf "%s: " ,i
+                for(j=0;j<count;j++){
+                    printf "#"
+                }
+                printf "\n"
+            }
+            if(None > 0){
+                count = int(WIDTH/(max/None))
+                    printf "None: "
+                    for(j=0;j<count;j++){
+                        printf "#"
+                    }
+                printf "\n"
+            }
+        }')
+        fi
+        if [ "$WIDTH" = "Basic" ]; then
+        WIDTH=1000
+        Result=$(echo "$CFS" | awk \
+           -v WIDTH="$WIDTH" -v None=0 -F',' \
+            '{  
+             if($6 != ""){
+                c_code[$6]++
+            }if($6 == ""){
+                None++
+            }
+        }END{
+            for (i in c_code) {
+                    count = int(c_code[i]/WIDTH)
+                    printf "%s: " ,i
+                    for(j=0;j<count;j++){
+                        printf "#"
+                    }
+                printf "\n"
+            }
+            if(None > 0){
+                count = int(None/WIDTH)
+                    printf "None: "
+                    for(j=0;j<count;j++){
+                        printf "#"
+                    }
+                printf "\n"
+            }
+        }')
+        fi
+        Result=$(echo "$Result" | sort)
+        echo "$Result"
+    
+    fi
+    #regions comand without graph
+    if [ "$COMAND" = "regions" ]&& [ "$s_isset" = "0" ]; then
+
+        Result=$(echo "$CFS" | awk \
+            -F',' \
+            '{  
+             if($5 != ""){
+                c_code[$5]++
+            }
+            if($5 == ""){
+                None++
+            }
+        }END{
+            for (i in c_code) {
+                printf "%s: %s\n" ,i ,c_code[i]
+            }
+            if(None > 0){
+            printf "None: %s\n" ,None} 
+        }')
+        
+
+        Result=$(echo "$Result" | sort)
+        echo "$Result"
+
+    fi
+    #regions comand with graph
+    if [ "$COMAND" = "regions" ]&& [ "$s_isset" = "1" ]; then
+        if [ "$WIDTH" != "Basic" ]; then
+        Result=$(echo "$CFS" | awk \
+            -v max=0 -v WIDTH="$WIDTH" -v None=0 -F',' \
+            '{  
+             if($5 != ""){
+                c_code[$5]++
+            }
+            if($5 == ""){
+                None++
+            }
+        }END{
+            for (i in c_code) {
+                        if(max<c_code[i]){
+                        max=c_code[i]
+                    }
+                }
+            for (i in c_code) {
+                count = int(WIDTH/(max/c_code[i]))
+                printf "%s: " ,i
+                for(j=0;j<count;j++){
+                    printf "#"
+                }
+                printf "\n"
+            }
+            if(None > 0){
+                count = int(WIDTH/(max/None))
+                    printf "None: "
+                    for(j=0;j<count;j++){
+                        printf "#"
+                    }
+                printf "\n"
+            }
+        }')
+        fi
+        
+        if [ "$WIDTH" = "Basic" ]; then
+        WIDTH=10000 
+        Result=$(echo "$CFS" | awk \
+             -v WIDTH="$WIDTH" -v None=0 -F',' \
+            '{  
+             if($5 != ""){
+                c_code[$5]++
+            }
+            if($5 == ""){
+                None++
+            }
+        }END{
+            for (i in c_code) {
+                    count = int(c_code[i]/WIDTH)
+                    printf "%s: " ,i
+                    for(j=0;j<count;j++){
+                        printf "#"
+                    }
+                printf "\n"
+            }
+            if(None > 0){
+                count = int(None/WIDTH)
+                    printf "None: "
+                    for(j=0;j<count;j++){
+                        printf "#"
+                    }
+                printf "\n"
+            }
+        }')
+        fi
+        
+        
+
+        Result=$(echo "$Result" | sort)
+        echo "$Result"
+
+    fi
+
+}
+validate_input() {
+    holder="$1"
+    holder=$(echo "$holder" | awk '!/^[[:space:]]*$/' | sed 's/ //g')
+    Final_File=$(echo "$holder" | awk -v i=0 -F',' '{
+            is_correct_age = $3 ~ /^[0-9]+$/
+            is_correct_date1 = $2 ~ /^([0-9]{4})-(01|03||05|07|08|10|12)-(0[1-9]|1[0-9]|2[0-9]|3[0-1])$/
+            is_correct_date2 = $2 ~ /^([0-9]{4})-(02)-(0[1-9]|1[0-9]|2[0-8])$/
+            is_correct_date3 = $2 ~ /^([0-9]{4})-(04|06|09|11)-(0[1-9]|1[0-9]|2[0-9]|30)$/
+            
+            is_correct_date = 1
+            if(is_correct_date1 == 0 && is_correct_date2 == 0 && is_correct_date3 == 0){
+                is_correct_date=0
+            }
+            
+            if((is_correct_age == 1 && is_correct_date) || $3 =="" || $2==""){
+                corct[i]=$0
+                i=i+1
+            }
+            
+           }END{
+            for(j=0;j<i;j++){
+                printf "%s\n",corct[j]
+            }
+        }')
+
+    Wrong_Lines=$(echo "$holder" | awk -v i=0 -F',' '{
+            is_correct_age = $3 ~ /^[0-9]+$/
+            is_correct_date1 = $2 ~ /^([0-9]{4})-(01|03||05|07|08|10|12)-(0[1-9]|1[0-9]|2[0-9]|3[0-1])$/
+            is_correct_date2 = $2 ~ /^([0-9]{4})-(02)-(0[1-9]|1[0-9]|2[0-8])$/
+            is_correct_date3 = $2 ~ /^([0-9]{4})-(04|06|09|11)-(0[1-9]|1[0-9]|2[0-9]|30)$/
+            is_correct_date = 1
+
+            if(is_correct_date1 == 0 && is_correct_date2 == 0 && is_correct_date3 == 0){
+                is_correct_date=0
+            }
+
+            if((is_correct_age == 0 || is_correct_date == 0) && $3 !="" && $ 2!=""){
+                if(is_correct_age == 1 && is_correct_date == 0 || is_correct_age == 0 && is_correct_date == 0){
+                corct[i]="Invalid date: " $0
+                i=i+1}
+                if(is_correct_age == 0 && is_correct_date == 1){
+                corct[i]="Invalid age: " $0
+                i=i+1}
+            }
+            
+            
+           }END{
+           for(j=0;j<i;j++){
+                printf "%s\n",corct[j]
+            }
+        }')
+
+    if [ "$Wrong_Lines" != "" ]; then
+        echo "$Wrong_Lines" >&2
+    fi
+
+}
+process_falgs() {
+    CFS="$1"
+    #TO DO -b -a automaticky mimo range
+    if [ "$a_isset" = 1 ]; then
+        CFS=$(echo "$CFS" | awk -v i=0 -v date="$a_DATETIME" -F',' '{
+            if($2 >= date){
+                valid[i]=$0
+                i=i+1
+            }
+           }END{
+            for (i in valid) {
+                printf "%s\n",valid[i]
+            }
+        }')
+        Final_File=$CFS
+    fi
+
+    if [ "$b_isset" = 1 ]; then
+        CFS=$(echo "$CFS" | awk -v i=0 -v date="$b_DATETIME" -F',' '{
+            if($2 <= date){
+                valid[i]=$0
+                i=i+1
+            }
+           }END{
+            for (i in valid) {
+                printf "%s\n",valid[i]
+            }
+        }')
+        Final_File=$CFS
+    fi
+
+    if [ "$g_isset" = 1 ]; then
+        CFS=$(echo "$CFS" | awk -v i=0 -v gender="$GENDER" -F',' '{
+            if($4 == gender){
+                valid[i]=$0
+                i=i+1
+            }
+           }END{
+            for (i in valid) {
+                printf "%s\n",valid[i]
+            }
+        }')
+        Final_File=$CFS
+    fi
+    
+}
+while [ "$#" -gt 0 ]; do
+    if [ $Comand_count -gt 1 ]; then
+        PROGRAM_END_STATE="Only one comand allowed "
+        echoerr "$PROGRAM_END_STATE"
+        PROGRAM_END_STATE="exit status 1"
+        echoerr "$PROGRAM_END_STATE"
+        exit
+    fi
+    case "$1" in
+    -h)
+        give_help
+        exit 0
+        ;;
+    infected)
+        COMAND="$1"
+        Comand_count=$((Comand_count + 1))
+        shift
+        ;;
+    age)
+        COMAND="$1"
+        Comand_count=$((Comand_count + 1))
+        shift
+        ;;
+    merge)
+        COMAND="$1"
+        Comand_count=$((Comand_count + 1))
+        shift
+        ;;
+    gender)
+        COMAND="$1"
+        Comand_count=$((Comand_count + 1))
+        shift
+        ;;
+    daily)
+        COMAND="$1"
+        Comand_count=$((Comand_count + 1))
+        shift
+        ;;
+    monthly)
+        COMAND="$1"
+        Comand_count=$((Comand_count + 1))
+        shift
+        ;;
+    yearly)
+        COMAND="$1"
+        Comand_count=$((Comand_count + 1))
+        shift
+        ;;
+    countries)
+        COMAND="$1"
+        Comand_count=$((Comand_count + 1))
+        shift
+        ;;
+    districts)
+        COMAND="$1"
+        Comand_count=$((Comand_count + 1))
+        shift
+        ;;
+    regions)
+        COMAND="$1"
+        Comand_count=$((Comand_count + 1))
+        shift
+        ;;
+    -a)
+        #Number of -a uses
+        a_isset=$((a_isset + 1))
+
+        #check if only one -a is used
+        if [ $a_isset -gt 1 ]; then
+            PROGRAM_END_STATE="Only one flag of same type allowed"
+            echoerr "$PROGRAM_END_STATE"
+            PROGRAM_END_STATE="exit status 1"
+            echoerr "$PROGRAM_END_STATE"
+            exit
+        fi
+        date=$2
+        #check if date is in correct form
+        is_correct_date=$(echo "$date" | awk -v i="$date" '{
+            is_correct_date1 = i ~ /^([0-9]{4})-(01|03||05|07|08|10|12)-(0[1-9]|1[0-9]|2[0-9]|3[0-1])$/
+            is_correct_date2 = i ~ /^([0-9]{4})-(02)-(0[1-9]|1[0-9]|2[0-8])$/
+            is_correct_date3 = i ~ /^([0-9]{4})-(04|06|09|11)-(0[1-9]|1[0-9]|2[0-9]|30)$/
+            is_correct_date = 1
+
+            if(is_correct_date1 == 0 && is_correct_date2 == 0 && is_correct_date3 == 0){
+                is_correct_date=0
+            }
+           }END{
+            print is_correct_date
+        }')
+        #exit script if date after -a is wrong or isnt at all
+        if [ "$is_correct_date" = "0" ]; then
+            PROGRAM_END_STATE="Wrong date or format after flag -a"
+            echo "$PROGRAM_END_STATE"
+            PROGRAM_END_STATE="exit status 1"
+            echo "$PROGRAM_END_STATE"
+            exit
+        fi
+        #filter sett for validation
+        Filter_isset=1
+
+        a_DATETIME="$2"
+        shift
+        shift
+        ;;
+    -b)
+        #Number of -b uses
+        b_isset=$((b_isset + 1))
+        #check if only one -b is used
+        if [ $b_isset -gt 1 ]; then
+            PROGRAM_END_STATE="Only one flag of same type allowed"
+            echoerr "$PROGRAM_END_STATE"
+            PROGRAM_END_STATE="exit status 1"
+            echoerr "$PROGRAM_END_STATE"
+            exit
+        fi
+
+        date=$2
+
+        #check if date is in correct form
+        is_correct_date=$(echo "$date" | awk -v i="$date" '{
+            is_correct_date1 = i ~ /^([0-9]{4})-(01|03||05|07|08|10|12)-(0[1-9]|1[0-9]|2[0-9]|3[0-1])$/
+            is_correct_date2 = i ~ /^([0-9]{4})-(02)-(0[1-9]|1[0-9]|2[0-8])$/
+            is_correct_date3 = i ~ /^([0-9]{4})-(04|06|09|11)-(0[1-9]|1[0-9]|2[0-9]|30)$/
+            is_correct_date = 1
+
+            if(is_correct_date1 == 0 && is_correct_date2 == 0 && is_correct_date3 == 0){
+                is_correct_date=0
+            }
+           }END{
+            print is_correct_date
+        }')
+        #exit script if date after -b is wrong or isnt at all
+        if [ "$is_correct_date" = "0" ]; then
+            PROGRAM_END_STATE="Wrong date or format after falg -b"
+            echo "$PROGRAM_END_STATE"
+            PROGRAM_END_STATE="exit status 1"
+            echo "$PROGRAM_END_STATE"
+            exit
+        fi
+        #filter sett for validation
+        Filter_isset=1
+
+        b_DATETIME="$2"
+        shift
+        shift
+        ;;
+    -g)
+        #Number of -g uses
+        g_isset=$((g_isset + 1))
+        #check if only one -b is used
+        if [ $g_isset -gt 1 ]; then
+            PROGRAM_END_STATE="Only one flag of same type allowed"
+            echoerr "$PROGRAM_END_STATE"
+            PROGRAM_END_STATE="exit status 1"
+            echoerr "$PROGRAM_END_STATE"
+            exit
+        fi
+        is_correct_gender=0
+        #check if date is in correct form
+        if [ "$2" = "M" ] || [ "$2" = "Z" ]; then
+            is_correct_gender=1
+        fi
+
+        #exit script if date after -b is wrong or isnt at all
+        if [ "$is_correct_gender" = "0" ]; then
+            PROGRAM_END_STATE="Wrong gender or format after flag -g"
+            echo "$PROGRAM_END_STATE"
+            PROGRAM_END_STATE="exit status 1"
+            echo "$PROGRAM_END_STATE"
+            exit
+        fi
+
+        Filter_isset=1
+        GENDER="$2"
+
+        shift
+        shift
+        ;;
+    -s)
+        Filter_isset=1
+        s_isset=$((s_isset + 1))
+        #check if only one -b is used
+        if [ $g_isset -gt 1 ]; then
+            PROGRAM_END_STATE="Only one flag of same type allowed"
+            echoerr "$PROGRAM_END_STATE"
+            PROGRAM_END_STATE="exit status 1"
+            echoerr "$PROGRAM_END_STATE"
+            exit
+        fi
+
+        WIDTH=$2
+        #check if date is in correct form
+        is_correct_width=$(echo "$WIDTH" | awk -v i="$WIDTH" '{
+            is_correct_date = i ~ /^[0-9]+$/
+           }END{
+            print is_correct_date
+        }')
+        #exit script if date after -s is wrong
+
+        if [ "$is_correct_width" = "1" ]; then
+            WIDTH="$2"
+            shift
+            shift
+        fi
+        if [ "$is_correct_width" = "0" ]; then
+            WIDTH="Basic"
+            shift
+        fi
+
+        ;;
+    *.csv.gz)
+        GZ_LOG_FILES="$1"
+        if [ "$First_run" -eq "0" ]; then
+            Final_File="$Final_File$(gzip -d -c "$GZ_LOG_FILES" | tail -n +2)"
+            First_run=1
+        else
+            Final_File="$Final_File$(printf "\n \r")"
+            Final_File="$Final_File$(gzip -d -c "$GZ_LOG_FILES" | tail -n +2)"
+        fi
+        shift
+        ;;
+    *.csv.bz2)
+        GZ_LOG_FILES="$1"
+        if [ "$First_run" -eq "0" ]; then
+            Final_File="$Final_File$(bzcat "$GZ_LOG_FILES" | tail -n +2)"
+            First_run=1
+        else
+            Final_File="$Final_File$(printf "\n \r")"
+            Final_File="$Final_File$(bzcat -d -c "$GZ_LOG_FILES" | tail -n +2)"
+        fi
+        shift
+        ;;
+    *.csv)
+        LOG_FILES="$1"
+        if [ "$First_run" -eq "0" ]; then
+            Final_File="$Final_File$(cat "$LOG_FILES" | tail -n +2)"
+            First_run=1
+        else
+            Final_File="$Final_File$(printf "\n \r")"
+            Final_File="$Final_File$(cat "$LOG_FILES" | tail -n +2)"
+        fi
+        shift
+        ;;
+    *)
+        PROGRAM_END_STATE=1
+        echo "Neznámy prikaz> $1 "
+        echo "Exit status $PROGRAM_END_STATE "
+        shift
+        exit
+        ;;
+    esac
+done
+
+#checks if one of the arguments was comand
+if [ -z "$COMAND" ]; then
+    COMAND="merge"
+fi 
+
+if [ "$COMAND" = "infected" ] || [ "$COMAND" = "merge" ] && [ "$s_isset" = 1 ]; then
+    PROGRAM_END_STATE="-s cant be used with comand [merge/infected] "
+    echoerr "$PROGRAM_END_STATE"
+    PROGRAM_END_STATE="exit status 2"
+    echoerr "$PROGRAM_END_STATE"
+    exit
+fi
+#no argument for input file
+process_stdinput "$GZ_LOG_FILES" "$LOG_FILES"
+
+
+
+if [ $Filter_isset -eq 1 ] || [ -n "$COMAND" ] && [ "$COMAND" != "merge" ]; then
+    validate_input "$Final_File"
+
+fi
+if [ $Filter_isset -eq 1 ]; then
+    process_falgs "$Final_File"
+fi
+
+if [ -n "$COMAND" ] || [ $Filter_isset -eq 1 ]; then
+    process_comand "$Final_File" "$COMAND"
+fi
